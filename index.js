@@ -198,3 +198,30 @@ function sanitizeColor(input) {
     }
     throw Object.assign(new Error('Formato de cor inválido. Use #RRGGBB ou um número.'), { code: ERROR_CODES.INVALID_COLOR });
 }
+// ===========================================================
+// PREVENIR CRASH GLOBAL E GARANTIR LOGIN
+// ===========================================================
+process.on('unhandledRejection', err => {
+    // Isso deve capturar erros assíncronos não tratados (promises)
+    console.error('Unhandled promise rejection (Async Error):', err);
+});
+process.on('uncaughtException', err => {
+    // Isso deve capturar a maioria dos erros síncronos, mas é o último recurso.
+    console.error('Uncaught exception (Sync Error):', err);
+    // IMPORTANTE: Em produção, você deve desligar o bot após um uncaughtException
+    process.exit(1); 
+});
+
+
+// 🛑 VALIDAÇÃO DE PRÉ-LOGIN 🛑
+if (!TOKEN || TOKEN.length < 50) {
+    console.error("❌ ERRO FATAL: BOT_TOKEN inválida ou não encontrada. Verifique seu arquivo .env.");
+    // Forçamos a saída para mostrar o erro na log, em vez de um crash silencioso.
+    process.exit(1);
+}
+
+// Tenta o login (o .catch() só pega erros de Promise, não erros síncronos)
+client.login(TOKEN).catch(err => {
+    console.error('❌ ERRO AO CONECTAR AO DISCORD. Verifique seu Token e Intenções:', err);
+    process.exit(1);
+});

